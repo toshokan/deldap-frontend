@@ -85,7 +85,7 @@ updateGroup model entry =
 getUsers =
     let
         dn = Config.userDn
-        url = crossOrigin "http://localhost:8001" ["api", "v1", "children" ] [Url.Builder.string "dn" dn]
+        url = crossOrigin Config.deldapBase ["api", "v1", "children" ] [Url.Builder.string "dn" dn]
     in
     Http.get
         { url = url
@@ -95,7 +95,7 @@ getUsers =
 getGroups =
     let
         dn = Config.groupDn
-        url = crossOrigin "http://localhost:8001" ["api", "v1", "children" ] [Url.Builder.string "dn" dn]
+        url = crossOrigin Config.deldapBase ["api", "v1", "children" ] [Url.Builder.string "dn" dn]
     in
     Http.get
         { url = url
@@ -105,7 +105,7 @@ getGroups =
 getGroupMembers group =
     let
         dn = group.dn
-        url = crossOrigin "http://localhost:8001" ["api", "v1", "members" ] [Url.Builder.string "dn" dn]
+        url = crossOrigin Config.deldapBase ["api", "v1", "members" ] [Url.Builder.string "dn" dn]
     in
         Http.get
             { url = url
