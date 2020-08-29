@@ -13,7 +13,7 @@ import Url.Builder exposing (crossOrigin)
 type alias User =
     { dn : String
     , cn : String
-    , displayName : String
+    , displayName : Maybe String
     , uid: String
     }
 
@@ -26,7 +26,7 @@ userDecoder =
     Decode.succeed User
         |> required "dn" string
         |> required "cn" string
-        |> required "displayName" string
+        |> optional "displayName" (maybe string) Nothing
         |> required "uid" string
 
 groupDecoder =
@@ -34,7 +34,7 @@ groupDecoder =
         |> required "dn" string
         |> required "cn" string
 
-type Model = Empty | Loading | Error String | ReadyUser (List User) | ReadyGroup (List Group)
+type Model = Empty | Loading | Error Http.Error | ReadyUser (List User) | ReadyGroup (List Group)
 
 type Msg = GotUsers (Result Http.Error (List User)) | GetUsers |
     GotGroups (Result Http.Error (List Group)) | GetGroups
@@ -44,13 +44,13 @@ update msg model =
         GotUsers result ->
             case result of 
                 Ok users -> (ReadyUser users, Cmd.none)
-                Err e -> (Error "Error loading model", Cmd.none)
+                Err e -> (Error e, Cmd.none)
         GetUsers ->
             (Loading, getUsers)
         GotGroups result ->
             case result of 
                 Ok groups -> (ReadyGroup groups, Cmd.none)
-                Err e -> (Error "Error loading model", Cmd.none)
+                Err e -> (Error e, Cmd.none)
         GetGroups ->
             (Loading, getGroups)
 
@@ -81,31 +81,47 @@ view model =
         , case model of
               Empty -> div [] []
               Loading -> text " Loading..."
-              Error s -> div [] [text "Error: ", text s]
+              Error e -> div [] [text "Error: ", viewError e]
               ReadyUser users -> 
                   ul [] (List.map viewUser users)
               ReadyGroup groups ->
                   ul [] (List.map viewGroup groups)
         ]
-        
 
+getActiveAttributes : List (String, Maybe String) -> List (String, String)
+getActiveAttributes attrs =
+    let isActive (label, v) enabled = case v of
+                                          Just value -> (label, value) :: enabled
+                                          _ -> enabled
+    in
+        List.foldl isActive [] attrs |> List.reverse
+
+viewAttribute (label, value) = li [] [div [] [text (label ++ ": "), text value]]
+            
 viewUser user =
+    let
+        attrs = [("dn", Just user.dn), ("cn", Just user.cn), ("displayName", user.displayName)]
+    in
     details []
         [ summary [] [text user.uid]
         , ul []
-            [ li [] [div [] [text "dn: ", text user.dn]]
-            , li [] [div [] [text "cn: ", text user.cn]]
-            , li [] [div [] [text "displayName: ", text user.displayName]]
-            ]
+            (List.map viewAttribute (getActiveAttributes attrs))
         ]
 
 viewGroup group =
     details []
-        [ summary [] [text group.dn]
+        [ summary [] [text group.cn]
         , ul []
-            [ li [] [div [] [text "cn: ", text group.cn]]
-            ]
+            [(viewAttribute ("dn", group.dn))]
         ]
+
+viewError error =
+    case error of
+        Http.BadUrl s -> text s
+        Http.BadBody s -> text s
+        Http.Timeout -> text "timeout"
+        Http.NetworkError -> text "network error"
+        Http.BadStatus _ -> text "bad status"
         
 subscriptions model = Sub.none
                                        
