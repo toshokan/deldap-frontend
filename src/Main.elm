@@ -3,12 +3,20 @@ module Main exposing (main)
 import Html exposing (text, div, button, ul, li, details, summary)
 import Html.Events exposing (onClick)
 import Http
-import Json.Decode as Decode exposing (Decoder, string, maybe, list)
-import Json.Decode.Pipeline exposing (required, optional)
+import Json.Decode as Decode exposing (Decoder, string, maybe, list, oneOf)
+import Json.Decode.Pipeline exposing (required, optional, hardcoded)
 import Array
 import Browser
-import Debug exposing (toString)
+import Debug exposing (toString, log)
 import Url.Builder exposing (crossOrigin)
+
+type DirectoryEntry = UserEntry User | GroupEntry Group
+
+getDn entry = case entry of
+                  UserEntry u -> u.dn
+                  GroupEntry g -> g.dn
+
+type alias Directory = List DirectoryEntry
 
 type alias User =
     { dn : String
@@ -20,6 +28,7 @@ type alias User =
 type alias Group =
     { dn : String
     , cn : String
+    , members: List String
     }    
     
 userDecoder =
@@ -33,26 +42,44 @@ groupDecoder =
     Decode.succeed Group
         |> required "dn" string
         |> required "cn" string
+        |> optional "member" (list string) []
 
-type Model = Empty | Loading | Error Http.Error | ReadyUser (List User) | ReadyGroup (List Group)
+userEntryDecoder = Decode.map (\u -> UserEntry u) userDecoder
+groupEntryDecoder = Decode.map (\g -> GroupEntry g) groupDecoder
+directoryEntryDecoder = oneOf [userEntryDecoder, groupEntryDecoder]
 
-type Msg = GotUsers (Result Http.Error (List User)) | GetUsers |
-    GotGroups (Result Http.Error (List Group)) | GetGroups
+type Model = Empty | Loading | Error Http.Error | ReadyDirectory Directory
+
+type Msg = GetUsers | GetGroups | GetGroupMembers Group
+    | GotDirectory (Result Http.Error (List DirectoryEntry)) | GotGroupMembers (Result Http.Error (List DirectoryEntry))
 
 update msg model =
     case msg of
-        GotUsers result ->
-            case result of 
-                Ok users -> (ReadyUser users, Cmd.none)
-                Err e -> (Error e, Cmd.none)
         GetUsers ->
             (Loading, getUsers)
-        GotGroups result ->
-            case result of 
-                Ok groups -> (ReadyGroup groups, Cmd.none)
-                Err e -> (Error e, Cmd.none)
         GetGroups ->
             (Loading, getGroups)
+        GetGroupMembers group -> (model, getGroupMembers group)
+        GotDirectory result ->
+            case result of 
+                Ok entries -> (ReadyDirectory entries, Cmd.none)
+                Err e -> (Error e, Cmd.none)
+        GotGroupMembers result ->
+            case result of
+                Ok (entry :: _) -> ((updateGroup model entry), Cmd.none)
+                Ok [] -> (model, Cmd.none)
+                Err e -> (Error e, Cmd.none)
+
+spliceEntry entries newEntry =
+    let
+        replace entry = if (getDn entry) == (getDn newEntry) then newEntry else entry
+    in
+        List.map replace entries
+                         
+updateGroup model entry =
+    case model of
+        ReadyDirectory entries -> ReadyDirectory (spliceEntry entries entry)
+        _ -> model
 
 getUsers =
     let
@@ -61,7 +88,7 @@ getUsers =
     in
     Http.get
         { url = url
-        , expect = Http.expectJson GotUsers (list userDecoder)
+        , expect = Http.expectJson GotDirectory (list userEntryDecoder)
         }
 
 getGroups =
@@ -71,8 +98,18 @@ getGroups =
     in
     Http.get
         { url = url
-        , expect = Http.expectJson GotGroups (list groupDecoder)
-        }        
+        , expect = Http.expectJson GotDirectory (list groupEntryDecoder)
+        }
+
+getGroupMembers group =
+    let
+        dn = group.dn
+        url = crossOrigin "http://localhost:8001" ["api", "v1", "members" ] [Url.Builder.string "dn" dn]
+    in
+        Http.get
+            { url = url
+            , expect = Http.expectJson GotGroupMembers (list directoryEntryDecoder)
+        }
 
 view model =
     div []
@@ -82,10 +119,8 @@ view model =
               Empty -> div [] []
               Loading -> text " Loading..."
               Error e -> div [] [text "Error: ", viewError e]
-              ReadyUser users -> 
-                  ul [] (List.map viewUser users)
-              ReadyGroup groups ->
-                  ul [] (List.map viewGroup groups)
+              ReadyDirectory dir ->
+                  ul [] (List.map viewDirectoryEntry dir)
         ]
 
 getActiveAttributes : List (String, Maybe String) -> List (String, String)
@@ -97,6 +132,11 @@ getActiveAttributes attrs =
         List.foldl isActive [] attrs |> List.reverse
 
 viewAttribute (label, value) = li [] [div [] [text (label ++ ": "), text value]]
+
+viewDirectoryEntry dirent =
+    case dirent of
+        UserEntry user -> viewUser user
+        GroupEntry group -> viewGroup group
             
 viewUser user =
     let
@@ -109,10 +149,17 @@ viewUser user =
         ]
 
 viewGroup group =
+    let
+        memberView = case group.members of
+                         [] -> []
+                         xs -> [li [] [text "Members: "], ul [] (List.map (\m -> li [] [div [] [text m]]) xs)]
+    in
     details []
         [ summary [] [text group.cn]
         , ul []
-            [(viewAttribute ("dn", group.dn))]
+            ((viewAttribute ("dn", group.dn)) ::
+                 memberView ++
+            [button [onClick (GetGroupMembers group)] [text "Get Members"]])
         ]
 
 viewError error =
