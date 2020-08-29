@@ -44,8 +44,8 @@ groupDecoder =
         |> required "cn" string
         |> optional "member" (list string) []
 
-userEntryDecoder = Decode.map (\u -> UserEntry u) userDecoder
-groupEntryDecoder = Decode.map (\g -> GroupEntry g) groupDecoder
+userEntryDecoder = Decode.map UserEntry userDecoder
+groupEntryDecoder = Decode.map GroupEntry groupDecoder
 directoryEntryDecoder = oneOf [userEntryDecoder, groupEntryDecoder]
 
 type Model = Empty | Loading | Error Http.Error | ReadyDirectory Directory
@@ -83,7 +83,7 @@ updateGroup model entry =
 
 getUsers =
     let
-        dn = "cn=users"
+        dn = "cn=users,cn=accounts,dc=science,dc=mcgill,dc=ca"
         url = crossOrigin "http://localhost:8001" ["api", "v1", "children" ] [Url.Builder.string "dn" dn]
     in
     Http.get
@@ -93,7 +93,7 @@ getUsers =
 
 getGroups =
     let
-        dn = "cn=groups"
+        dn = "cn=groups,cn=accounts,dc=science,dc=mcgill,dc=ca"
         url = crossOrigin "http://localhost:8001" ["api", "v1", "children" ] [Url.Builder.string "dn" dn]
     in
     Http.get
