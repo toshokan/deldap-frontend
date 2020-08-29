@@ -9,6 +9,7 @@ import Array
 import Browser
 import Debug exposing (toString, log)
 import Url.Builder exposing (crossOrigin)
+import Config
 
 type DirectoryEntry = UserEntry User | GroupEntry Group
 
@@ -83,7 +84,7 @@ updateGroup model entry =
 
 getUsers =
     let
-        dn = "cn=users,cn=accounts,dc=science,dc=mcgill,dc=ca"
+        dn = Config.userDn
         url = crossOrigin "http://localhost:8001" ["api", "v1", "children" ] [Url.Builder.string "dn" dn]
     in
     Http.get
@@ -93,7 +94,7 @@ getUsers =
 
 getGroups =
     let
-        dn = "cn=groups,cn=accounts,dc=science,dc=mcgill,dc=ca"
+        dn = Config.groupDn
         url = crossOrigin "http://localhost:8001" ["api", "v1", "children" ] [Url.Builder.string "dn" dn]
     in
     Http.get
