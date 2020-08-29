@@ -24,6 +24,7 @@ type alias User =
     , cn : String
     , displayName : Maybe String
     , uid: String
+    , memberships: List String
     }
 
 type alias Group =
@@ -38,6 +39,7 @@ userDecoder =
         |> required "cn" string
         |> optional "displayName" (maybe string) Nothing
         |> required "uid" string
+        |> optional "memberOf" (list string) []
 
 groupDecoder =
     Decode.succeed Group
@@ -51,8 +53,8 @@ directoryEntryDecoder = oneOf [userEntryDecoder, groupEntryDecoder]
 
 type Model = Empty | Loading | Error Http.Error | ReadyDirectory Directory
 
-type Msg = GetUsers | GetGroups | GetGroupMembers Group
-    | GotDirectory (Result Http.Error (List DirectoryEntry)) | GotGroupMembers (Result Http.Error (List DirectoryEntry))
+type Msg = GetUsers | GetGroups | GetGroupMembers Group | GetUserMemberships User
+    | GotDirectory (Result Http.Error (List DirectoryEntry)) | GotGroupMembers (Result Http.Error (List DirectoryEntry)) | GotUserMemberships (Result Http.Error (List DirectoryEntry))
 
 update msg model =
     case msg of
@@ -61,13 +63,19 @@ update msg model =
         GetGroups ->
             (Loading, getGroups)
         GetGroupMembers group -> (model, getGroupMembers group)
+        GetUserMemberships group -> (model, getUserMemberships group)
         GotDirectory result ->
             case result of 
                 Ok entries -> (ReadyDirectory entries, Cmd.none)
                 Err e -> (Error e, Cmd.none)
         GotGroupMembers result ->
             case result of
-                Ok (entry :: _) -> ((updateGroup model entry), Cmd.none)
+                Ok (entry :: _) -> ((updateEntry model entry), Cmd.none)
+                Ok [] -> (model, Cmd.none)
+                Err e -> (Error e, Cmd.none)
+        GotUserMemberships result ->
+            case result of
+                Ok (entry :: _) -> ((updateEntry model entry), Cmd.none)
                 Ok [] -> (model, Cmd.none)
                 Err e -> (Error e, Cmd.none)
 
@@ -77,7 +85,7 @@ spliceEntry entries newEntry =
     in
         List.map replace entries
                          
-updateGroup model entry =
+updateEntry model entry =
     case model of
         ReadyDirectory entries -> ReadyDirectory (spliceEntry entries entry)
         _ -> model
@@ -112,6 +120,16 @@ getGroupMembers group =
             , expect = Http.expectJson GotGroupMembers (list directoryEntryDecoder)
         }
 
+getUserMemberships user =
+    let
+        dn = user.dn
+        url = crossOrigin Config.deldapBase ["api", "v1", "memberships" ] [Url.Builder.string "dn" dn]
+    in
+        Http.get
+            { url = url
+            , expect = Http.expectJson GotUserMemberships (list directoryEntryDecoder)
+        }
+
 view model =
     div []
         [ button [ onClick GetUsers ] [ text "Fetch users" ]
@@ -141,12 +159,17 @@ viewDirectoryEntry dirent =
             
 viewUser user =
     let
+        membershipsView = case user.memberships of
+                              [] -> []
+                              xs -> [li [] [text "Memberships: "], ul [] (List.map (\m -> li [] [div [] [text m]]) xs)]
         attrs = [("dn", Just user.dn), ("cn", Just user.cn), ("displayName", user.displayName)]
     in
     details []
         [ summary [] [text user.uid]
         , ul []
-            (List.map viewAttribute (getActiveAttributes attrs))
+            ((List.map viewAttribute (getActiveAttributes attrs)) ++
+                membershipsView ++
+            [button [onClick (GetUserMemberships user)] [text "Get Memberships"]])
         ]
 
 viewGroup group =
